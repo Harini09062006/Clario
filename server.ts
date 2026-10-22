@@ -10,10 +10,19 @@ import { PDFDocument } from 'pdf-lib';
 import { BENCHMARK_FIXTURES } from './src/lib/benchmarkFixtures';
 
 // Ensure IPv4 first to avoid IPv6 packet drop on Google API endpoints in container
-dns.setDefaultResultOrder('ipv4first');
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore if restricted in serverless environment
+}
 
-const require = createRequire(import.meta.url);
-const pdfParseModule = require('pdf-parse');
+let pdfParseModule: any = null;
+try {
+  const require = createRequire(import.meta.url);
+  pdfParseModule = require('pdf-parse');
+} catch (e: any) {
+  console.warn('[Clario] Notice: pdf-parse not available via createRequire, fallback will use pdf-lib:', e?.message || e);
+}
 
 // In-memory document hash cache for instant deduplication & fast upload reuse
 const documentProcessingCache = new Map<string, any>();
@@ -462,8 +471,24 @@ if (GEMINI_API_KEY) {
 }
 
 // -------------------------------------------------------------
-// 1. API Status Endpoint
+// 1. API Status Endpoints
 // -------------------------------------------------------------
+app.get(['/api', '/api/'], (_req: Request, res: Response) => {
+  res.json({
+    appName: 'Clario',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    endpoints: [
+      '/api/status',
+      '/api/documents/process',
+      '/api/documents/ask',
+      '/api/documents/compare',
+      '/api/documents/verify-numbers',
+      '/api/translate',
+    ],
+  });
+});
+
 app.get('/api/status', (_req: Request, res: Response) => {
   res.json({
     appName: 'Clario',
@@ -1769,6 +1794,10 @@ async function startServer() {
   });
 }
 
+export function handler(req: any, res: any) {
+  return app(req, res);
+}
+export { app };
 export default app;
 
 // Only start the persistent standalone listener when server.ts is executed directly (local dev / Docker),

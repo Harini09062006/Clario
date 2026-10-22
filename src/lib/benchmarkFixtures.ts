@@ -1,4 +1,4 @@
-import { ClarioDocument } from '../types';
+import type { ClarioDocument } from '../types';
 
 export const BENCHMARK_FIXTURES: ClarioDocument[] = [
   {
