@@ -1,0 +1,6 @@
+{
+  "name": "Clario",
+  "description": "Indian-Language Document Intelligence Agent with source-grounded answers, exact citations, document change radar, and numerical verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
