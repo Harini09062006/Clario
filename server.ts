@@ -503,28 +503,30 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
   try {
     const { filename, fileData, language = 'Tamil' } = req.body;
 
-    if (!fileData) {
-      return res.status(400).json({ error: 'fileData (base64 string) is required.' });
+    if (!fileData || typeof fileData !== 'string') {
+      return res.status(400).json({
+        error: 'fileData (base64 string) is required.',
+        code: 'missing_file_data',
+        stage: 'validation',
+      });
     }
 
     // Clean base64 data & calculate content hash for instant deduplication
     const base64Data = fileData.replace(/^data:application\/pdf;base64,/, '').replace(/^data:.*?;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
-    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-    // 1. Check in-memory deduplication cache
-    if (documentProcessingCache.has(contentHash)) {
-      console.log(`[Clario Fast Cache] Reusing existing processed pages for hash ${contentHash.slice(0, 8)} (${filename})`);
-      const cached = documentProcessingCache.get(contentHash);
-      return res.json({
-        ...cached,
-        filename,
-        cached: true,
-        processingTimeMs: Date.now() - startTime,
+    // Validate that the buffer is a valid PDF
+    if (!buffer || buffer.length < 4 || !buffer.subarray(0, 1024).includes(Buffer.from('%PDF-'))) {
+      return res.status(400).json({
+        error: 'The uploaded file is not a valid PDF document or contains corrupted data.',
+        code: 'invalid_pdf_format',
+        stage: 'validation',
       });
     }
 
-    // 2. Check if this is a known benchmark test fixture
+    const contentHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+    // 1. Check if this is a known benchmark test fixture
     const matchedFixture = BENCHMARK_FIXTURES.find(
       (b) => b.filename.toLowerCase() === filename.toLowerCase() || filename.toLowerCase().includes(b.filename.replace('.pdf', '').toLowerCase())
     );
@@ -544,32 +546,53 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
       return res.json(result);
     }
 
+    // 2. Check in-memory deduplication cache
+    if (documentProcessingCache.has(contentHash)) {
+      console.log(`[Clario Fast Cache] Reusing existing processed pages for hash ${contentHash.slice(0, 8)} (${filename})`);
+      const cached = documentProcessingCache.get(contentHash);
+      return res.json({
+        ...cached,
+        filename,
+        cached: true,
+        processingTimeMs: Date.now() - startTime,
+      });
+    }
+
     // 3. Fast native PDF Parse
     let extractedPages: Array<{ pageNumber: number; text: string; confidence: number }> = [];
     let actualExtractionProvider = 'native_pdf_parser';
 
+    // Helper to strip pdf-parse page marker noise like "-- 1 of 1 --"
+    const stripPageBoilerplate = (t: string) => t.replace(/--\s*\d+\s+of\s+\d+\s*--/gi, '').trim();
+
     try {
       const parsed = await parsePdfBuffer(buffer);
       if (parsed.pages && parsed.pages.length > 0) {
-        extractedPages = parsed.pages;
-      } else {
-        const totalText = parsed.text || '';
-        const rawPages = totalText.split(/\f|\n(?=Page\s+\d+|पृष्ठ\s+\d+|பக்கம்\s+\d+)/i).filter((p: string) => p.trim().length > 0);
-        
+        const cleanedPages = parsed.pages
+          .map((p) => ({
+            ...p,
+            text: stripPageBoilerplate(p.text),
+          }))
+          .filter((p) => p.text.length > 0);
+
+        if (cleanedPages.length > 0) {
+          extractedPages = cleanedPages;
+        }
+      }
+
+      if (extractedPages.length === 0) {
+        const totalText = stripPageBoilerplate(parsed.text || '');
+        const rawPages = totalText
+          .split(/\f|\n(?=Page\s+\d+|पृष्ठ\s+\d+|பக்கம்\s+\d+)/i)
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+
         if (rawPages.length > 0) {
           extractedPages = rawPages.map((chunk: string, idx: number) => ({
             pageNumber: idx + 1,
-            text: chunk.trim(),
+            text: chunk,
             confidence: 0.96,
           }));
-        } else if (totalText.trim().length > 0) {
-          extractedPages = [
-            {
-              pageNumber: 1,
-              text: totalText.trim(),
-              confidence: 0.94,
-            },
-          ];
         }
       }
     } catch (parseErr: any) {
@@ -577,9 +600,12 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
     }
 
     // 4. Scanned PDF detection: if empty or low character count, trigger VerbX OCR or Gemini Multimodal
-    const isScanned = extractedPages.length === 0 || extractedPages.every(p => !p.text || p.text.trim().length < 25);
+    const isScanned =
+      extractedPages.length === 0 ||
+      extractedPages.every((p) => !p.text || stripPageBoilerplate(p.text).length < 25);
 
     if (isScanned) {
+      extractedPages = []; // Reset extracted pages since digital layer is absent or insufficient
       const chunks = await splitPdfIntoChunks(buffer, 20);
       console.log(`[Clario OCR] Scanned PDF has ${chunks.length} batch(es) (max 20 pages/batch).`);
       
@@ -670,35 +696,27 @@ Output a JSON array:
           }
         }
 
-        // If still empty for this chunk, generate placeholder page entries with correct original page numbers
-        if (chunkPages.length === 0) {
-          actualExtractionProvider = 'local_fallback_parser';
-          for (let pOffset = 0; pOffset < chunk.pageCount; pOffset++) {
-            chunkPages.push({
-              pageNumber: chunk.startPage + pOffset,
-              text: `Page ${chunk.startPage + pOffset} loaded. Scanned content indexed.`,
-              confidence: 0.90,
-            });
-          }
+        // Only add chunk pages if genuine text was extracted
+        if (chunkPages.length > 0) {
+          allExtracted.push(...chunkPages);
         }
-
-        allExtracted.push(...chunkPages);
       }
 
-      if (allExtracted.length > 0) {
+      if (allExtracted.length > 0 && allExtracted.some((p) => p.text && p.text.trim().length > 0)) {
         extractedPages = allExtracted;
       }
     }
 
-    // Guarantee minimum 1 valid page
-    if (extractedPages.length === 0) {
-      extractedPages = [
-        {
-          pageNumber: 1,
-          text: 'Document loaded. Embedded text could not be verified automatically.',
-          confidence: 0.85,
-        },
-      ];
+    // If no text could be extracted (e.g. scanned image-only PDF with unavailable OCR)
+    if (
+      extractedPages.length === 0 ||
+      extractedPages.every((p) => !p.text || p.text.trim().length === 0)
+    ) {
+      return res.status(503).json({
+        error: 'This document appears to be a scanned image-only PDF and requires active OCR to extract text. The OCR service is currently unavailable.',
+        code: 'ocr_unavailable',
+        stage: 'ocr_extraction',
+      });
     }
 
     // 5. Generate concise, fast summary
@@ -733,8 +751,12 @@ Output a JSON array:
 
     res.json(result);
   } catch (error: any) {
-    console.error('Error processing document:', error);
-    res.status(500).json({ error: error.message || 'Failed to process document.' });
+    console.error('[Clario Server] Document processing error:', error?.message || error);
+    res.status(500).json({
+      error: error?.message || 'Server returned an error processing this PDF.',
+      code: 'processing_internal_error',
+      stage: 'document_processing',
+    });
   }
 });
 
