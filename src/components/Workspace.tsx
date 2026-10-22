@@ -225,7 +225,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
         if (!response.ok) {
           const errBody = await response.json().catch(() => null);
-          throw new Error(errBody?.error || 'Server returned an error processing this PDF.');
+          const detail =
+            errBody?.error ||
+            errBody?.message ||
+            `HTTP ${response.status} (${response.statusText || 'Endpoint unavailable'})`;
+          throw new Error(detail);
         }
 
         const data = await response.json();

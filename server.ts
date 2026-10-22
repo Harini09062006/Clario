@@ -120,6 +120,14 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Normalize req.url so routes match whether invoked directly or via Vercel /api rewrites
+app.use((req: Request, _res: Response, next) => {
+  if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/?')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 // Configuration
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
@@ -593,6 +601,7 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
                 'Authorization': `Bearer ${VERBX_API_KEY}`,
                 'x-api-key': VERBX_API_KEY,
               },
+              signal: AbortSignal.timeout(8000),
               body: JSON.stringify({
                 image: chunkBase64,
               }),
@@ -610,10 +619,10 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
               ];
               actualExtractionProvider = 'verbx_ocr';
             } else {
-              console.warn(`[VerbX OCR] Provider responded with HTTP ${verbxRes.status}. Falling back to internal engine for batch ${cIdx + 1}.`);
+              console.warn(`[VerbX OCR] Provider responded with HTTP ${verbxRes.status} (${verbxRes.statusText || 'Service Unavailable'}). Gracefully falling back to fallback engines.`);
             }
-          } catch (verbxErr) {
-            console.error(`[VerbX OCR] Connection error on batch ${cIdx + 1}:`, verbxErr);
+          } catch (verbxErr: any) {
+            console.warn(`[VerbX OCR] Notice on batch ${cIdx + 1}: ${verbxErr?.name === 'TimeoutError' ? 'Request timed out after 8s' : verbxErr?.message || 'Connection failed'}. Gracefully falling back.`);
           }
         }
 
@@ -1664,32 +1673,6 @@ app.post('/api/documents/verify-numbers', async (req: Request, res: Response) =>
 });
 
 // -------------------------------------------------------------
-// Dev & Production Static / Vite Middleware Setup
-// -------------------------------------------------------------
-async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  } else {
-    // Vite middleware in development mode
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Clario Server] Running on http://0.0.0.0:${PORT}`);
-    console.log(`[Clario Server] VerbX OCR Configured: ${isVerbXConfigured}`);
-    console.log(`[Clario Server] Gemini AI Engine: ${Boolean(GEMINI_API_KEY)}`);
-  });
-}
-
-// -------------------------------------------------------------
 // Translation API Endpoint
 // -------------------------------------------------------------
 app.post('/api/translate', async (req: Request, res: Response) => {
@@ -1724,7 +1707,7 @@ app.post('/api/translate', async (req: Request, res: Response) => {
       try {
         const genRes = await geminiClient.models.generateContent({
           model: GEMINI_MODEL,
-          contents: [{ role: 'user', parts: [{ text: `Translate the following text to ${target_lang}. Return ONLY the translated text.\\n\\nText: ${text}` }] }],
+          contents: [{ role: 'user', parts: [{ text: `Translate the following text to ${target_lang}. Return ONLY the translated text.\n\nText: ${text}` }] }],
         });
         return res.json({ translatedText: genRes.text || '' });
       } catch (err: any) {
@@ -1734,11 +1717,48 @@ app.post('/api/translate', async (req: Request, res: Response) => {
     return res.json({ translatedText: text }); // Fallback to original text if translation unavailable
 
   } catch (err: any) {
-    return res.status(500).json({ error: 'Translation failed', details: err.message });
+    return res.status(500).json({ error: 'Translation failed', details: (err as any)?.message });
   }
 });
 
-startServer().catch(err => {
-  console.error('[Clario Server] Startup error:', err);
-  process.exit(1);
-});
+// -------------------------------------------------------------
+// Dev & Production Static / Vite Middleware Setup
+// -------------------------------------------------------------
+async function startServer() {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req: Request, res: Response) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+  } else {
+    // Vite middleware in development mode
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Clario Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[Clario Server] VerbX OCR Configured: ${isVerbXConfigured}`);
+    console.log(`[Clario Server] Gemini AI Engine: ${Boolean(GEMINI_API_KEY)}`);
+  });
+}
+
+export default app;
+
+// Only start the persistent standalone listener when server.ts is executed directly (local dev / Docker),
+// and NOT when imported as a module (e.g., by api/index.ts for Vercel Serverless Functions).
+const isDirectExecution = Boolean(
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'))
+);
+
+if (isDirectExecution && !process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    console.error('[Clario Server] Startup error:', err);
+    process.exit(1);
+  });
+}
