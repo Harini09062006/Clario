@@ -1,12 +1,37 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Sanitize Supabase URL to ensure bare origin without trailing slashes or /rest/v1
+const sanitizeSupabaseUrl = (raw: string | undefined): string => {
+  if (!raw) return '';
+  let url = raw.trim().replace(/\/+$/, '');
+  url = url.replace(/\/rest\/v1\/?$/i, '');
+  return url;
+};
+
 // Retrieve Supabase environment variables from client environment
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
-console.log('[Supabase Config] URL:', supabaseUrl);
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+// Supports standard VITE_ prefixes as well as SUPABASE_ / PUBLISHABLE_KEY aliases
+const rawUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
+  (import.meta.env.SUPABASE_URL as string | undefined) ||
+  '';
+
+const supabaseUrl = sanitizeSupabaseUrl(rawUrl);
+
+const supabaseAnonKey = (
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  (import.meta.env.SUPABASE_ANON_KEY as string | undefined) ||
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  ''
+).trim();
 
 export const isSupabaseConfigured = (): boolean => {
-  return Boolean(supabaseUrl && supabaseAnonKey);
+  return Boolean(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    !supabaseUrl.includes('your-project') &&
+    supabaseAnonKey !== 'PASTE_REAL_ANON_KEY_HERE'
+  );
 };
 
 // Initialize client only if valid configuration exists, otherwise null
