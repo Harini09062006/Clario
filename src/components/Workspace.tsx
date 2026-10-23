@@ -24,14 +24,40 @@ import { Sidebar, WorkspaceTab } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { AskDocumentsView } from './views/AskDocumentsView';
 import { MyDocumentsView } from './views/MyDocumentsView';
-import { CompareDocumentsView } from './views/CompareDocumentsView';
-import { VerifyNumbersView } from './views/VerifyNumbersView';
-import { ContradictionRadarView } from './views/ContradictionRadarView';
-import { EvidenceGraphView } from './views/EvidenceGraphView';
-import { DecisionSimulatorView } from './views/DecisionSimulatorView';
-import { TestLabView } from './views/TestLabView';
-import { DocumentViewerModal } from './DocumentViewerModal';
-import { ConfigGuideModal } from './ConfigGuideModal';
+
+const CompareDocumentsView = React.lazy(() =>
+  import('./views/CompareDocumentsView').then((m) => ({ default: m.CompareDocumentsView }))
+);
+const VerifyNumbersView = React.lazy(() =>
+  import('./views/VerifyNumbersView').then((m) => ({ default: m.VerifyNumbersView }))
+);
+const ContradictionRadarView = React.lazy(() =>
+  import('./views/ContradictionRadarView').then((m) => ({ default: m.ContradictionRadarView }))
+);
+const EvidenceGraphView = React.lazy(() =>
+  import('./views/EvidenceGraphView').then((m) => ({ default: m.EvidenceGraphView }))
+);
+const DecisionSimulatorView = React.lazy(() =>
+  import('./views/DecisionSimulatorView').then((m) => ({ default: m.DecisionSimulatorView }))
+);
+const TestLabView = React.lazy(() =>
+  import('./views/TestLabView').then((m) => ({ default: m.TestLabView }))
+);
+const DocumentViewerModal = React.lazy(() =>
+  import('./DocumentViewerModal').then((m) => ({ default: m.DocumentViewerModal }))
+);
+const ConfigGuideModal = React.lazy(() =>
+  import('./ConfigGuideModal').then((m) => ({ default: m.ConfigGuideModal }))
+);
+
+const ViewFallback: React.FC = () => (
+  <div className="flex-1 flex items-center justify-center p-16">
+    <div className="flex flex-col items-center gap-3">
+      <Loader2 className="w-6 h-6 text-[#6D28D9] animate-spin" />
+      <span className="text-xs font-semibold text-[#64748B]">Loading view...</span>
+    </div>
+  </div>
+);
 
 interface WorkspaceProps {
   currentUser: AuthUser;
@@ -613,89 +639,100 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             />
           )}
 
-          {activeTab === 'compare' && (
-            <CompareDocumentsView
-              documents={documents}
-              currentUser={currentUser}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-              onNavigateToMyDocs={() => setActiveTab('documents')}
-              onTriggerUpload={handleTriggerUpload}
-              isUploading={isUploading}
-            />
-          )}
+          <React.Suspense fallback={<ViewFallback />}>
+            {activeTab === 'compare' && (
+              <CompareDocumentsView
+                documents={documents}
+                currentUser={currentUser}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+                onNavigateToMyDocs={() => setActiveTab('documents')}
+                onTriggerUpload={handleTriggerUpload}
+                isUploading={isUploading}
+              />
+            )}
 
-          {activeTab === 'verify' && (
-            <VerifyNumbersView
-              documents={documents}
-              currentUser={currentUser}
-              initialDocId={selectedDocId}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-              onNavigateToMyDocs={() => setActiveTab('documents')}
-              onTriggerUpload={handleTriggerUpload}
-              isUploading={isUploading}
-            />
-          )}
+            {activeTab === 'verify' && (
+              <VerifyNumbersView
+                documents={documents}
+                currentUser={currentUser}
+                initialDocId={selectedDocId}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+                onNavigateToMyDocs={() => setActiveTab('documents')}
+                onTriggerUpload={handleTriggerUpload}
+                isUploading={isUploading}
+              />
+            )}
 
-          {activeTab === 'contradictions' && (
-            <ContradictionRadarView
-              documents={documents}
-              currentUser={currentUser}
-              initialDocId={selectedDocId}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-              onNavigateToMyDocs={() => setActiveTab('documents')}
-              onTriggerUpload={handleTriggerUpload}
-              isUploading={isUploading}
-            />
-          )}
+            {activeTab === 'contradictions' && (
+              <ContradictionRadarView
+                documents={documents}
+                currentUser={currentUser}
+                initialDocId={selectedDocId}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+                onNavigateToMyDocs={() => setActiveTab('documents')}
+                onTriggerUpload={handleTriggerUpload}
+                isUploading={isUploading}
+              />
+            )}
 
-          {activeTab === 'evidence_graph' && (
-            <EvidenceGraphView
-              documents={documents}
-              currentUser={currentUser}
-              initialDocId={selectedDocId}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-              onNavigateToMyDocs={() => setActiveTab('documents')}
-              onTriggerUpload={handleTriggerUpload}
-              isUploading={isUploading}
-            />
-          )}
+            {activeTab === 'evidence_graph' && (
+              <EvidenceGraphView
+                documents={documents}
+                currentUser={currentUser}
+                initialDocId={selectedDocId}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+                onNavigateToMyDocs={() => setActiveTab('documents')}
+                onTriggerUpload={handleTriggerUpload}
+                isUploading={isUploading}
+              />
+            )}
 
-          {activeTab === 'decision_simulator' && (
-            <DecisionSimulatorView
-              documents={documents}
-              currentUser={currentUser}
-              initialDocId={selectedDocId}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-              onNavigateToMyDocs={() => setActiveTab('documents')}
-              onTriggerUpload={handleTriggerUpload}
-              isUploading={isUploading}
-            />
-          )}
+            {activeTab === 'decision_simulator' && (
+              <DecisionSimulatorView
+                documents={documents}
+                currentUser={currentUser}
+                initialDocId={selectedDocId}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+                onNavigateToMyDocs={() => setActiveTab('documents')}
+                onTriggerUpload={handleTriggerUpload}
+                isUploading={isUploading}
+              />
+            )}
 
-          {activeTab === 'testlab' && (
-            <TestLabView
-              documents={documents}
-              currentUser={currentUser}
-              onOpenViewer={openViewer}
-              onGoToAuth={onGoToAuth}
-            />
-          )}
+            {activeTab === 'testlab' && (
+              <TestLabView
+                documents={documents}
+                currentUser={currentUser}
+                onOpenViewer={openViewer}
+                onGoToAuth={onGoToAuth}
+              />
+            )}
+          </React.Suspense>
         </main>
       </div>
 
       {/* Document Viewer Modal for inspecting pages & highlighted citations */}
       {viewerState?.isOpen && (
-        <DocumentViewerModal
-          document={viewerState.doc}
-          initialPage={viewerState.page}
-          highlightPassage={viewerState.passage}
-          onClose={() => setViewerState(null)}
-        />
+        <React.Suspense fallback={null}>
+          <DocumentViewerModal
+            document={viewerState.doc}
+            initialPage={viewerState.page}
+            highlightPassage={viewerState.passage}
+            onClose={() => setViewerState(null)}
+          />
+        </React.Suspense>
+      )}
+
+      {/* Settings / Supabase & VerbX Blueprint Modal */}
+      {showConfigModal && (
+        <React.Suspense fallback={null}>
+          <ConfigGuideModal onClose={() => setShowConfigModal(false)} />
+        </React.Suspense>
       )}
 
       {/* Floating Real-Time Processing Status Card */}

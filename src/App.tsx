@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { SplashScreen } from './components/SplashScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { Workspace } from './components/Workspace';
-import { ConfigGuideModal } from './components/ConfigGuideModal';
+
+const ConfigGuideModal = React.lazy(() =>
+  import('./components/ConfigGuideModal').then((m) => ({ default: m.ConfigGuideModal }))
+);
 import {
   AuthUser,
   getStoredGuestSession,
@@ -135,7 +138,9 @@ export default function App() {
       )}
 
       {showConfigGuide && (
-        <ConfigGuideModal onClose={() => setShowConfigGuide(false)} />
+        <React.Suspense fallback={null}>
+          <ConfigGuideModal onClose={() => setShowConfigGuide(false)} />
+        </React.Suspense>
       )}
     </div>
   );
