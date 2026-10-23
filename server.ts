@@ -191,10 +191,18 @@ app.all(['/health', '/api/health'], (_req: Request, res: Response) => {
 
 // Configuration
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '').trim();
-const RAW_GEMINI_MODEL = (process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || 'gemini-3.5-flash').trim();
+const RAW_GEMINI_MODEL = (process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || 'gemini-3.5-flash-lite').trim();
 const GEMINI_MODEL = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'].includes(RAW_GEMINI_MODEL)
-  ? 'gemini-3.5-flash'
-  : (RAW_GEMINI_MODEL || 'gemini-3.5-flash');
+  ? 'gemini-3.5-flash-lite'
+  : (RAW_GEMINI_MODEL || 'gemini-3.5-flash-lite');
+
+const FALLBACK_GEMINI_MODELS = [
+  GEMINI_MODEL,
+  'gemini-3.5-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+].filter((m, i, arr) => arr.indexOf(m) === i);
 const N8N_WEBHOOK_URL = (process.env.N8N_WEBHOOK_URL || process.env.VITE_N8N_WEBHOOK_URL || '').trim();
 const VERBX_API_KEY = (process.env.VERBX_API_KEY || process.env.VITE_VERBX_API_KEY || '').trim();
 const VERBX_OCR_ENDPOINT = (process.env.VERBX_OCR_ENDPOINT || process.env.VITE_VERBX_OCR_ENDPOINT || 'https://api.verbxeco.com/v1/ocr').trim();
@@ -513,7 +521,18 @@ app.post('/api/voice/tts', async (req: Request, res: Response) => {
 
 // Gemini client
 let geminiClient: GoogleGenAI | null = null;
-let isQuotaExhausted = false;
+let quotaCooldownUntil = 0;
+
+function isGeminiQuotaActive(): boolean {
+  if (quotaCooldownUntil > 0) {
+    if (Date.now() < quotaCooldownUntil) {
+      return true; // Still in cooldown period
+    }
+    // Cooldown expired; reset
+    quotaCooldownUntil = 0;
+  }
+  return false;
+}
 
 function checkAndFlagQuotaError(err: any): boolean {
   const str = String(err?.message || err?.error?.message || err || '');
@@ -526,10 +545,9 @@ function checkAndFlagQuotaError(err: any): boolean {
     str.includes('rate-limit') ||
     str.includes('Quota exceeded')
   ) {
-    if (!isQuotaExhausted) {
-      isQuotaExhausted = true;
-      console.warn('[Clario] Detected Gemini quota/rate exhaustion. Seamlessly switched to high-precision deterministic grounding engine.');
-    }
+    // Set a 30-second temporary cooldown rather than a permanent failure
+    quotaCooldownUntil = Date.now() + 30000;
+    console.warn('[Clario] Detected Gemini rate limit/quota cooldown (30s). Grounding will use deterministic engine temporarily.');
     return true;
   }
   return false;
@@ -605,7 +623,7 @@ app.get('/api/status', (_req: Request, res: Response) => {
           ? 'unconfigured_or_placeholder'
           : geminiClient === null
           ? 'invalid_key'
-          : isQuotaExhausted
+          : isGeminiQuotaActive()
           ? 'quota_exhausted_fallback_active'
           : 'active',
       },
@@ -784,50 +802,98 @@ app.post('/api/documents/process', async (req: Request, res: Response) => {
         }
 
         // If batch is still empty and Gemini is configured, use Gemini Multimodal OCR on this batch
-        if (chunkPages.length === 0 && geminiClient && !isQuotaExhausted) {
+        if (chunkPages.length === 0 && geminiClient && !isGeminiQuotaActive()) {
           const geminiStart = Date.now();
           try {
-            console.log(`[Gemini OCR] Dispatching batch ${cIdx + 1}/${chunks.length} (${chunk.pageCount} pages) to model ${GEMINI_MODEL}...`);
+            console.log(`[Gemini OCR] Dispatching batch ${cIdx + 1}/${chunks.length} (${chunk.pageCount} pages, start page ${chunk.startPage}) to model ${GEMINI_MODEL}...`);
             const visionPrompt = `You are Clario's High-Precision Indian-Language Document OCR Engine.
-Extract all text verbatim in its original script (${language}, Tamil, Hindi, etc.) page by page for these ${chunk.pageCount} pages.
-Output a JSON array:
+Extract all text verbatim in its original script (${language}, Tamil, Hindi, English, etc.) page by page for these ${chunk.pageCount} page(s), starting at page ${chunk.startPage}.
+CRITICAL INSTRUCTIONS:
+- Transcribe all text, clauses, numbers, amounts, dates, and headings exactly as they appear in the scanned document.
+- Return a valid JSON array where each element has "pageNumber" (integer), "text" (verbatim extracted string), and "confidence" (number between 0.90 and 1.0).
+- If a page contains no text, set "text": "".
+Output JSON array:
 [
-  { "pageNumber": ${chunk.startPage}, "text": "verbatim text on page ${chunk.startPage}", "confidence": 0.95 }
+  { "pageNumber": ${chunk.startPage}, "text": "verbatim text on page ${chunk.startPage}", "confidence": 0.98 }
 ]`;
-            const visionRes = await geminiClient.models.generateContent({
-              model: GEMINI_MODEL,
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
+            let visionRes: any = null;
+            let activeModelUsed = GEMINI_MODEL;
+            for (const candidateModel of FALLBACK_GEMINI_MODELS) {
+              try {
+                visionRes = await geminiClient.models.generateContent({
+                  model: candidateModel,
+                  contents: [
                     {
-                      inlineData: {
-                        mimeType: 'application/pdf',
-                        data: chunkBase64,
-                      },
+                      role: 'user',
+                      parts: [
+                        {
+                          inlineData: {
+                            mimeType: 'application/pdf',
+                            data: chunkBase64,
+                          },
+                        },
+                        { text: visionPrompt },
+                      ],
                     },
-                    { text: visionPrompt },
                   ],
-                },
-              ],
-            });
+                });
+                activeModelUsed = candidateModel;
+                break;
+              } catch (candidateErr: any) {
+                const msg = String(candidateErr?.message || '');
+                const isQuota = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || candidateErr?.status === 429;
+                if (isQuota) {
+                  console.warn(`[Gemini OCR] Model ${candidateModel} quota reached (429). Attempting fallback model...`);
+                  continue;
+                }
+                throw candidateErr;
+              }
+            }
             const geminiDuration = Date.now() - geminiStart;
-            console.log(`[Gemini OCR] Batch ${cIdx + 1} completed in ${geminiDuration}ms`);
+            console.log(`[Gemini OCR] Batch ${cIdx + 1} completed in ${geminiDuration}ms using model ${activeModelUsed}`);
 
-            const rawText = visionRes.text || '[]';
-            const match = rawText.match(/\[[\s\S]*\]/);
-            if (match) {
-              const parsedBatch = JSON.parse(match[0]);
+            const rawText = (visionRes.text || '').trim();
+            let parsedBatch: any = null;
+            try {
+              parsedBatch = JSON.parse(rawText);
+            } catch {
+              const arrayMatch = rawText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+              if (arrayMatch) {
+                try {
+                  parsedBatch = JSON.parse(arrayMatch[0]);
+                } catch {
+                  // Fallback below
+                }
+              }
+            }
+
+            if (Array.isArray(parsedBatch) && parsedBatch.length > 0) {
               chunkPages = parsedBatch.map((p: any, idx: number) => ({
-                pageNumber: p.pageNumber || (chunk.startPage + idx),
-                text: p.text || '',
-                confidence: p.confidence || 0.95,
+                pageNumber: Number(p.pageNumber) || (chunk.startPage + idx),
+                text: (p.text || '').trim(),
+                confidence: typeof p.confidence === 'number' ? p.confidence : 0.95,
               }));
+            } else if (rawText.length > 0) {
+              // If Gemini responded with raw text rather than JSON, preserve it verbatim
+              const cleanedText = rawText.replace(/^```(json)?\n?/i, '').replace(/```$/i, '').trim();
+              if (cleanedText.length > 0) {
+                chunkPages = [
+                  {
+                    pageNumber: chunk.startPage,
+                    text: cleanedText,
+                    confidence: 0.92,
+                  },
+                ];
+              }
+            }
+
+            if (chunkPages.some((p) => p.text.length > 0)) {
               actualExtractionProvider = 'gemini_vision';
             }
           } catch (visionErr: any) {
             const geminiDuration = Date.now() - geminiStart;
-            console.warn(`[Gemini OCR] Batch ${cIdx + 1} error after ${geminiDuration}ms:`, visionErr?.message || visionErr);
+            const errMsg = visionErr?.message || String(visionErr);
+            console.warn(`[Gemini OCR] Batch ${cIdx + 1} error after ${geminiDuration}ms:`, errMsg.slice(0, 150));
             checkAndFlagQuotaError(visionErr);
           }
         }
@@ -857,10 +923,10 @@ Output a JSON array:
         reasons.push('Gemini Vision OCR: not configured (GEMINI_API_KEY is missing or is a placeholder — get a free key at https://aistudio.google.com/app/apikey)');
       } else if (geminiClient === null) {
         reasons.push('Gemini Vision OCR: API key was rejected by Google as invalid — verify your GEMINI_API_KEY in .env');
-      } else if (isQuotaExhausted) {
-        reasons.push('Gemini Vision OCR: API quota exhausted — wait or upgrade your plan');
+      } else if (isGeminiQuotaActive()) {
+        reasons.push('Gemini Vision OCR: Temporary rate limit/quota reached — please retry in a few seconds');
       } else {
-        reasons.push('Gemini Vision OCR: call failed at runtime (check server logs for details)');
+        reasons.push('Gemini Vision OCR: Document contains no legible text or image was blank');
       }
 
       console.error(`[Clario OCR] Scanned PDF could not be processed. Diagnostics:\n  ${reasons.join('\n  ')}`);
@@ -965,8 +1031,8 @@ app.post('/api/documents/ask', async (req: Request, res: Response) => {
   try {
     const { documentId, pages: incomingPages, questionText, answerLanguage = 'English' } = req.body;
 
-    if (isQuotaExhausted) {
-        console.warn('[Clario] Quota exhausted, forcing deterministic grounding engine.');
+    if (isGeminiQuotaActive()) {
+      console.warn('[Clario] Temporary quota cooldown active, forcing deterministic grounding engine.');
     }
 
     if (!questionText || typeof questionText !== 'string' || !questionText.trim()) {
@@ -1081,7 +1147,7 @@ app.post('/api/documents/ask', async (req: Request, res: Response) => {
     // -------------------------------------------------------------
     // Attempt Gemini Function Calling Loop if Client is Available
     // -------------------------------------------------------------
-    if (geminiClient && !isQuotaExhausted) {
+    if (geminiClient && !isGeminiQuotaActive()) {
       try {
         const functionDeclarations = [
           {
@@ -1641,7 +1707,7 @@ app.post('/api/documents/compare', async (req: Request, res: Response) => {
     const docAText = (docA.pages || []).map((p: any) => `[Doc A - Page ${p.pageNumber}]:\n${p.extractedText}`).join('\n\n');
     const docBText = (docB.pages || []).map((p: any) => `[Doc B - Page ${p.pageNumber}]:\n${p.extractedText}`).join('\n\n');
 
-    if (geminiClient && !isQuotaExhausted) {
+    if (geminiClient && !isGeminiQuotaActive()) {
       try {
         const prompt = `You are Clario's Document Change & Conflict Radar agent.
 Compare Document A ("${docA.title}") and Document B ("${docB.title}").
@@ -1935,7 +2001,7 @@ app.post('/api/documents/contradictions', async (req: Request, res: Response) =>
     const baseResult = detectDocumentContradictions(documentId || 'doc-1', title, workingPages);
 
     // If Gemini is available, enhance with AI reasoning while strictly verifying passages against source pages
-    if (geminiClient && !isQuotaExhausted && workingPages.length > 0) {
+    if (geminiClient && !isGeminiQuotaActive() && workingPages.length > 0) {
       try {
         const pagesTextPrompt = workingPages
           .map((p) => `[PAGE ${p.pageNumber}]:\n${p.extractedText}`)
@@ -2249,7 +2315,7 @@ app.post('/api/documents/decision-rules', async (req: Request, res: Response) =>
     const extractedRules = extractDocumentRulesFromPages(workingPages, title);
 
     // If Gemini is available, enhance with any additional clauses while strictly verifying quotations
-    if (geminiClient && !isQuotaExhausted && workingPages.length > 0) {
+    if (geminiClient && !isGeminiQuotaActive() && workingPages.length > 0) {
       try {
         const pagesText = workingPages
           .map((p) => `[PAGE ${p.pageNumber}]:\n${p.extractedText}`)
@@ -2418,7 +2484,7 @@ app.post('/api/translate', async (req: Request, res: Response) => {
     }
     
     // Fallback to Gemini if VerbX fails or is not configured
-    if (geminiClient && !isQuotaExhausted) {
+    if (geminiClient && !isGeminiQuotaActive()) {
       try {
         const genRes = await geminiClient.models.generateContent({
           model: GEMINI_MODEL,
