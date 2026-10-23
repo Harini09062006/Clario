@@ -21,6 +21,7 @@ import {
 import { ClarioDocument, QuestionAnswer, Language } from '../../types';
 import { AuthUser } from '../../lib/supabase';
 import { GuestSignInPrompt } from '../GuestSignInPrompt';
+import { apiUrl } from '../../lib/api';
 
 interface AskDocumentsViewProps {
   document: ClarioDocument | null;
@@ -71,7 +72,7 @@ export const AskDocumentsView: React.FC<AskDocumentsViewProps> = ({
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           try {
-            const res = await fetch('/api/voice/stt', {
+            const res = await fetch(apiUrl('/api/voice/stt'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ audio: base64Audio, language: answerLanguage }),
@@ -125,7 +126,7 @@ export const AskDocumentsView: React.FC<AskDocumentsViewProps> = ({
 
     try {
       console.log(`[TTS_FRONTEND] Full text to be synthesized: "${text}"`);
-      const res = await fetch('/api/voice/tts', {
+      const res = await fetch(apiUrl('/api/voice/tts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, language: answerLanguage }),
@@ -308,7 +309,7 @@ export const AskDocumentsView: React.FC<AskDocumentsViewProps> = ({
     setErrorMsg(null);
 
     try {
-      const response = await fetch('/api/documents/ask', {
+      const response = await fetch(apiUrl('/api/documents/ask'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "tsx server.ts",
+    "dev:client": "vite",
+    "dev:server": "tsx server.ts",
+    "start": "node server.js",
     "build": "vite build && node scripts/build-server.js",
     "build:server": "node scripts/build-server.js",
+    "test": "node scripts/build-server.js && tsx scripts/test-uploaded-pdf.ts",
+    "test:uploaded": "node scripts/build-server.js && tsx scripts/test-uploaded-pdf.ts",
+    "test:contradictions": "node scripts/build-server.js && tsx scripts/test-contradiction-radar.ts",
+    "test:evidence-graph": "node scripts/build-server.js && tsx scripts/test-evidence-graph.ts",
+    "test:decision-simulator": "node scripts/build-server.js && tsx scripts/test-decision-simulator.ts",
     "test:api": "node scripts/test-vercel-endpoints.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -26,6 +33,7 @@
     "pdf-parse": "^2.4.5",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "scribe.js-ocr": "^0.16.1",
     "vite": "^8.3.0"
   },
   "devDependencies": {

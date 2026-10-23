@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: clario-backend
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: VERBX_API_KEY
+        sync: false
+      - key: VERBX_OCR_ENDPOINT
+        value: https://api.verbxeco.com/v1/ocr
+      - key: VERBX_TRANSLATION_ENDPOINT
+        value: https://api.verbxeco.com/v1/translate
+      - key: VERBX_CHAT_ENDPOINT
+        value: https://api.verbxeco.com/v1/chat
+      - key: FRONTEND_URL
+        value: https://clario-navy.vercel.app

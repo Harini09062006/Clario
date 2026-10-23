@@ -17,6 +17,7 @@ import {
 import { ClarioDocument, DocumentComparisonResult, DocumentComparisonDifference } from '../../types';
 import { AuthUser } from '../../lib/supabase';
 import { GuestSignInPrompt } from '../GuestSignInPrompt';
+import { apiUrl } from '../../lib/api';
 
 interface CompareDocumentsViewProps {
   documents: ClarioDocument[];
@@ -120,7 +121,7 @@ export const CompareDocumentsView: React.FC<CompareDocumentsViewProps> = ({
     setError(null);
 
     try {
-      const response = await fetch('/api/documents/compare', {
+      const response = await fetch(apiUrl('/api/documents/compare'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

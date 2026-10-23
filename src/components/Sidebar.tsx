@@ -13,10 +13,21 @@ import {
   PanelLeftOpen,
   X,
   LogIn,
+  ShieldAlert,
+  Network,
+  Sliders,
 } from 'lucide-react';
 import { AuthUser } from '../lib/supabase';
 
-export type WorkspaceTab = 'ask' | 'documents' | 'compare' | 'verify' | 'testlab';
+export type WorkspaceTab =
+  | 'ask'
+  | 'documents'
+  | 'compare'
+  | 'verify'
+  | 'contradictions'
+  | 'evidence_graph'
+  | 'decision_simulator'
+  | 'testlab';
 
 interface SidebarProps {
   activeTab: WorkspaceTab;
@@ -63,6 +74,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'verify' as WorkspaceTab,
       label: 'Verify Numbers',
       icon: Hash,
+    },
+    {
+      id: 'contradictions' as WorkspaceTab,
+      label: 'Contradiction Radar',
+      icon: ShieldAlert,
+    },
+    {
+      id: 'evidence_graph' as WorkspaceTab,
+      label: 'Evidence Graph',
+      icon: Network,
+    },
+    {
+      id: 'decision_simulator' as WorkspaceTab,
+      label: 'Decision Simulator',
+      icon: Sliders,
     },
     {
       id: 'testlab' as WorkspaceTab,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Play, CheckCircle2, XCircle, Beaker, ArrowRight, ShieldCheck, FileText, Check, AlertCircle } from 'lucide-react';
 import { ClarioDocument, TestCaseResult } from '../types';
+import { apiUrl } from '../lib/api';
 
 interface TestLabModalProps {
   documents: ClarioDocument[];
@@ -61,7 +62,7 @@ export const TestLabModal: React.FC<TestLabModalProps> = ({
 
   const [testCases, setTestCases] = useState<TestCaseResult[]>(initialTests);
 
-  const runSingleTest = async (testId: 'TC1' | 'TC2' | 'TC3' | 'TC4') => {
+  const runSingleTest = async (testId: string) => {
     setCurrentRunningId(testId);
     setTestCases((prev) =>
       prev.map((t) => (t.id === testId ? { ...t, status: 'running', actualOutput: undefined, failureReason: undefined } : t))
@@ -72,7 +73,7 @@ export const TestLabModal: React.FC<TestLabModalProps> = ({
     const doc = documents.find((d) => d.filename.includes(test.documentName.replace('.pdf', '')) || d.title.includes(test.documentName)) || documents[0];
 
     try {
-      const response = await fetch('/api/documents/ask', {
+      const response = await fetch(apiUrl('/api/documents/ask'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

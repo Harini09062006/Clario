@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, GitCompare, ArrowRight, AlertTriangle, CheckCircle, Calendar, DollarSign, Users, ShieldAlert, FileText, Sparkles } from 'lucide-react';
 import { ClarioDocument, DocumentComparisonResult, DocumentComparisonDifference } from '../types';
+import { apiUrl } from '../lib/api';
 
 interface CompareModalProps {
   documents: ClarioDocument[];
@@ -37,7 +38,7 @@ export const CompareModal: React.FC<CompareModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch('/api/documents/compare', {
+      const response = await fetch(apiUrl('/api/documents/compare'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

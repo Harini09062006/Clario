@@ -27,7 +27,7 @@ async function buildServer() {
     fs.mkdirSync('api', { recursive: true });
   }
 
-  // Bundle server.ts into api/index.js
+  // Bundle server.ts into api/index.js for Vercel
   await esbuild.build({
     entryPoints: ['server.ts'],
     bundle: true,
@@ -45,7 +45,22 @@ async function buildServer() {
   });
   console.log('[Build Server] Generated api/index.js');
 
-  console.log('[Build Server] Serverless build completed successfully.');
+  // Also bundle server.ts into server.js for Render / standalone Node.js production service
+  await esbuild.build({
+    entryPoints: ['server.ts'],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    packages: 'external',
+    outfile: 'server.js',
+    banner: {
+      js: '// Clario Production Server - Built with esbuild\n',
+    },
+  });
+  console.log('[Build Server] Generated server.js for Render/standalone service');
+
+  console.log('[Build Server] Server builds completed successfully.');
 }
 
 buildServer().catch((err) => {

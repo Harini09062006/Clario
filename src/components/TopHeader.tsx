@@ -65,6 +65,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         return 'Verify Numbers';
       case 'testlab':
         return 'Test Laboratory';
+      case 'contradictions':
+        return 'Contradiction Radar';
+      case 'evidence_graph':
+        return 'Evidence Traceability Graph';
+      case 'decision_simulator':
+        return 'Decision Simulator';
       default:
         return 'Workspace';
     }

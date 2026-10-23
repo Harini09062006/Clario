@@ -19,12 +19,16 @@ import {
   deleteDocumentRecord,
   renameDocumentRecord,
 } from '../lib/supabase';
+import { apiUrl } from '../lib/api';
 import { Sidebar, WorkspaceTab } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { AskDocumentsView } from './views/AskDocumentsView';
 import { MyDocumentsView } from './views/MyDocumentsView';
 import { CompareDocumentsView } from './views/CompareDocumentsView';
 import { VerifyNumbersView } from './views/VerifyNumbersView';
+import { ContradictionRadarView } from './views/ContradictionRadarView';
+import { EvidenceGraphView } from './views/EvidenceGraphView';
+import { DecisionSimulatorView } from './views/DecisionSimulatorView';
 import { TestLabView } from './views/TestLabView';
 import { DocumentViewerModal } from './DocumentViewerModal';
 import { ConfigGuideModal } from './ConfigGuideModal';
@@ -210,7 +214,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setUploadProgress(55);
         setProcessingMessage('Extracting text and running OCR on pages...');
 
-        const response = await fetch('/api/documents/process', {
+        const response = await fetch(apiUrl('/api/documents/process'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: abortController.signal,
@@ -623,6 +627,45 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
           {activeTab === 'verify' && (
             <VerifyNumbersView
+              documents={documents}
+              currentUser={currentUser}
+              initialDocId={selectedDocId}
+              onOpenViewer={openViewer}
+              onGoToAuth={onGoToAuth}
+              onNavigateToMyDocs={() => setActiveTab('documents')}
+              onTriggerUpload={handleTriggerUpload}
+              isUploading={isUploading}
+            />
+          )}
+
+          {activeTab === 'contradictions' && (
+            <ContradictionRadarView
+              documents={documents}
+              currentUser={currentUser}
+              initialDocId={selectedDocId}
+              onOpenViewer={openViewer}
+              onGoToAuth={onGoToAuth}
+              onNavigateToMyDocs={() => setActiveTab('documents')}
+              onTriggerUpload={handleTriggerUpload}
+              isUploading={isUploading}
+            />
+          )}
+
+          {activeTab === 'evidence_graph' && (
+            <EvidenceGraphView
+              documents={documents}
+              currentUser={currentUser}
+              initialDocId={selectedDocId}
+              onOpenViewer={openViewer}
+              onGoToAuth={onGoToAuth}
+              onNavigateToMyDocs={() => setActiveTab('documents')}
+              onTriggerUpload={handleTriggerUpload}
+              isUploading={isUploading}
+            />
+          )}
+
+          {activeTab === 'decision_simulator' && (
+            <DecisionSimulatorView
               documents={documents}
               currentUser={currentUser}
               initialDocId={selectedDocId}

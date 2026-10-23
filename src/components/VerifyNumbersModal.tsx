@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle2, AlertTriangle, HelpCircle, Hash, Search, FileText, Sparkles, Filter } from 'lucide-react';
 import { ClarioDocument, NumberVerificationResult, NumberVerificationItem } from '../types';
+import { apiUrl } from '../lib/api';
 
 interface VerifyNumbersModalProps {
   document: ClarioDocument;
@@ -26,13 +27,19 @@ export const VerifyNumbersModal: React.FC<VerifyNumbersModalProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/documents/verify-numbers', {
+      const response = await fetch(apiUrl('/api/documents/verify-numbers'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           documentId: document.id,
           title: document.title,
-          pages: document.pages,
+          filename: document.filename,
+          pages: (document.pages || []).map((p, idx) => ({
+            id: p.id || `p-${idx + 1}`,
+            pageNumber: p.pageNumber || idx + 1,
+            extractedText: p.extractedText || (p as any).text || '',
+            ocrConfidence: p.ocrConfidence !== undefined ? p.ocrConfidence : 0.95,
+          })),
         }),
       });
 
