@@ -22,8 +22,13 @@ try {
   // Ignore if restricted in serverless environment
 }
 
-import * as pdfParsePackage from 'pdf-parse';
-const pdfParseModule: any = pdfParsePackage;
+let pdfParseModule: any = null;
+try {
+  const require = createRequire(import.meta.url);
+  pdfParseModule = require('pdf-parse');
+} catch (e: any) {
+  // Graceful fallback: serverless environments without native pdf-parse continue operating smoothly
+}
 
 // In-memory document hash cache for instant deduplication & fast upload reuse
 const documentProcessingCache = new Map<string, any>();
