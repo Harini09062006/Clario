@@ -8,7 +8,6 @@ import path from "path";
 import crypto from "crypto";
 import dns from "node:dns";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 import { GoogleGenAI, Type } from "@google/genai";
 import { PDFDocument } from "pdf-lib";
 
@@ -2298,17 +2297,12 @@ function extractDocumentRulesFromPages(pages, docTitle) {
 }
 
 // server.ts
+import * as pdfParsePackage from "pdf-parse";
 try {
   dns.setDefaultResultOrder("ipv4first");
 } catch {
 }
-var pdfParseModule = null;
-try {
-  const require2 = createRequire(import.meta.url);
-  pdfParseModule = require2("pdf-parse");
-} catch (e) {
-  console.warn("[Clario] Notice: pdf-parse not available via createRequire, fallback will use pdf-lib:", e?.message || e);
-}
+var pdfParseModule = pdfParsePackage;
 var documentProcessingCache = /* @__PURE__ */ new Map();
 var LANG_CODES = {
   English: "en",
