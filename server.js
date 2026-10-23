@@ -2441,7 +2441,8 @@ app.all(["/health", "/api/health"], (_req, res) => {
   });
 });
 var GEMINI_API_KEY = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "").trim();
-var GEMINI_MODEL = (process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.0-flash").trim();
+var RAW_GEMINI_MODEL = (process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-3.5-flash").trim();
+var GEMINI_MODEL = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"].includes(RAW_GEMINI_MODEL) ? "gemini-3.5-flash" : RAW_GEMINI_MODEL || "gemini-3.5-flash";
 var N8N_WEBHOOK_URL = (process.env.N8N_WEBHOOK_URL || process.env.VITE_N8N_WEBHOOK_URL || "").trim();
 var VERBX_API_KEY = (process.env.VERBX_API_KEY || process.env.VITE_VERBX_API_KEY || "").trim();
 var VERBX_OCR_ENDPOINT = (process.env.VERBX_OCR_ENDPOINT || process.env.VITE_VERBX_OCR_ENDPOINT || "https://api.verbxeco.com/v1/ocr").trim();
@@ -2451,6 +2452,19 @@ var VERBX_STT_ENDPOINT = (process.env.VERBX_STT_ENDPOINT || process.env.VITE_VER
 var VERBX_TTS_ENDPOINT = (process.env.VERBX_TTS_ENDPOINT || process.env.VITE_VERBX_TTS_ENDPOINT || "https://api.verbxeco.com/v1/tts").trim();
 var isVerbXConfigured = Boolean(
   VERBX_API_KEY && VERBX_API_KEY !== "" && !VERBX_API_KEY.includes("your_verbx_api_key_here") && !VERBX_API_KEY.includes("your-verbx-api-key")
+);
+var GEMINI_KEY_PLACEHOLDERS = [
+  "your_gemini_api_key_here",
+  "your-gemini-api-key",
+  "PASTE_",
+  "placeholder",
+  "example",
+  "xxxx",
+  "YOUR_",
+  "sk-placeholder"
+];
+var isGeminiConfigured = Boolean(
+  GEMINI_API_KEY && GEMINI_API_KEY.length > 10 && !GEMINI_KEY_PLACEHOLDERS.some((p) => GEMINI_API_KEY.toLowerCase().includes(p.toLowerCase()))
 );
 async function translateAnswerIfNeeded(text, targetLanguage) {
   if (!text || !targetLanguage || targetLanguage === "English") return text;
@@ -2725,12 +2739,32 @@ function checkAndFlagQuotaError(err) {
   }
   return false;
 }
-if (GEMINI_API_KEY) {
+if (isGeminiConfigured) {
   try {
     geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    (async () => {
+      try {
+        await geminiClient.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: [{ role: "user", parts: [{ text: "Reply with exactly: OK" }] }],
+          config: { maxOutputTokens: 5, temperature: 0 }
+        });
+        console.log("[Clario] Gemini API key validated successfully.");
+      } catch (probeErr) {
+        const msg = probeErr?.message || String(probeErr);
+        if (msg.includes("API_KEY_INVALID") || msg.includes("API key not valid") || msg.includes("INVALID_ARGUMENT")) {
+          console.error("[Clario] *** GEMINI_API_KEY is INVALID. Disabling Gemini features. Please set a valid key in .env ***");
+          geminiClient = null;
+        } else {
+          console.warn("[Clario] Gemini startup probe non-fatal error:", msg.slice(0, 120));
+        }
+      }
+    })();
   } catch (err) {
     console.error("Failed to initialize Gemini client:", err);
   }
+} else if (GEMINI_API_KEY) {
+  console.warn("[Clario] GEMINI_API_KEY appears to be a placeholder value. Gemini features are DISABLED. Set a real API key in .env to enable AI-powered OCR and Q&A.");
 }
 app.get(["/api", "/api/"], (_req, res) => {
   res.json({
@@ -2762,9 +2796,9 @@ app.get("/api/status", (_req, res) => {
         status: isVerbXConfigured ? "active" : "unconfigured_fallback_active"
       },
       gemini: {
-        configured: Boolean(GEMINI_API_KEY),
+        configured: isGeminiConfigured && geminiClient !== null,
         model: GEMINI_MODEL,
-        status: isQuotaExhausted ? "quota_exhausted_fallback_active" : Boolean(GEMINI_API_KEY) ? "active" : "unconfigured"
+        status: !isGeminiConfigured ? "unconfigured_or_placeholder" : geminiClient === null ? "invalid_key" : isQuotaExhausted ? "quota_exhausted_fallback_active" : "active"
       },
       supabase: {
         urlConfigured: Boolean(process.env.VITE_SUPABASE_URL && !process.env.VITE_SUPABASE_URL.includes("your-supabase-project")),
@@ -2957,17 +2991,37 @@ Output a JSON array:
       }
     }
     if (extractedPages.length === 0 || extractedPages.every((p) => !p.text || p.text.trim().length === 0)) {
+      const reasons = [];
+      if (!isVerbXConfigured) {
+        reasons.push("VerbX OCR: not configured (VERBX_API_KEY is missing or is a placeholder)");
+      }
+      if (!isGeminiConfigured) {
+        reasons.push("Gemini Vision OCR: not configured (GEMINI_API_KEY is missing or is a placeholder \u2014 get a free key at https://aistudio.google.com/app/apikey)");
+      } else if (geminiClient === null) {
+        reasons.push("Gemini Vision OCR: API key was rejected by Google as invalid \u2014 verify your GEMINI_API_KEY in .env");
+      } else if (isQuotaExhausted) {
+        reasons.push("Gemini Vision OCR: API quota exhausted \u2014 wait or upgrade your plan");
+      } else {
+        reasons.push("Gemini Vision OCR: call failed at runtime (check server logs for details)");
+      }
+      console.error(`[Clario OCR] Scanned PDF could not be processed. Diagnostics:
+  ${reasons.join("\n  ")}`);
       return res.status(503).json({
-        error: "This document appears to be a scanned image-only PDF and requires active OCR to extract text. The OCR service is currently unavailable. To enable OCR for scanned documents, configure a valid VERBX_API_KEY or GEMINI_API_KEY in your environment.",
+        error: `This document is a scanned/image-only PDF requiring OCR. No working OCR provider is available.
+
+${reasons.join("\n")}`,
         code: "ocr_unavailable",
         stage: "ocr_extraction",
+        diagnostics: reasons,
+        fix: "Set a valid GEMINI_API_KEY in your .env file. Get a free key at https://aistudio.google.com/app/apikey",
         providers: {
           verbx: {
             configured: isVerbXConfigured,
             endpoint: VERBX_OCR_ENDPOINT
           },
           gemini: {
-            configured: Boolean(GEMINI_API_KEY),
+            configured: isGeminiConfigured,
+            clientAlive: geminiClient !== null,
             model: GEMINI_MODEL
           }
         }
@@ -3722,7 +3776,7 @@ app.post("/api/documents/verify-numbers", async (req, res) => {
         isScanned: true,
         ocrRequired: true,
         code: "ocr_unavailable",
-        error: "This document appears to be a scanned image-only PDF and requires active OCR to extract and audit numbers. The OCR service is currently unavailable. Please configure a valid VERBX_API_KEY or GEMINI_API_KEY.",
+        error: `This document is a scanned image-only PDF requiring OCR. No working OCR provider is available. ${!isGeminiConfigured ? "Set a valid GEMINI_API_KEY in .env (get one at https://aistudio.google.com/app/apikey)." : geminiClient === null ? "Your GEMINI_API_KEY is invalid \u2014 verify it in .env." : "Check server logs for OCR errors."}`,
         totalNumbersChecked: 0,
         confirmedCount: 0,
         flaggedCount: 0,
@@ -3793,7 +3847,7 @@ app.post("/api/documents/contradictions", async (req, res) => {
         isScanned: true,
         ocrRequired: true,
         code: "ocr_unavailable",
-        error: "This document appears to be a scanned image-only PDF and requires active OCR to detect contradictions. Configure a valid VERBX_API_KEY or GEMINI_API_KEY.",
+        error: `This document is a scanned image-only PDF requiring OCR. No working OCR provider is available. ${!isGeminiConfigured ? "Set a valid GEMINI_API_KEY in .env (get one at https://aistudio.google.com/app/apikey)." : geminiClient === null ? "Your GEMINI_API_KEY is invalid \u2014 verify it in .env." : "Check server logs for OCR errors."}`,
         totalConflicts: 0,
         highPriorityCount: 0,
         manualReviewCount: 0,
@@ -3990,7 +4044,7 @@ app.post("/api/documents/evidence-graph", async (req, res) => {
         isScanned: true,
         ocrRequired: true,
         code: "ocr_unavailable",
-        error: "This document appears to be a scanned image-only PDF and requires active OCR to trace evidence.",
+        error: `This document is a scanned image-only PDF requiring OCR. ${!isGeminiConfigured ? "Set a valid GEMINI_API_KEY in .env." : "Check server logs for OCR errors."}`,
         generatedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
     }
@@ -4075,7 +4129,7 @@ app.post("/api/documents/decision-rules", async (req, res) => {
         isScanned: true,
         ocrRequired: true,
         code: "ocr_unavailable",
-        error: "This document appears to be a scanned image-only PDF and requires active OCR to extract rules."
+        error: `This document is a scanned image-only PDF requiring OCR. ${!isGeminiConfigured ? "Set a valid GEMINI_API_KEY in .env." : "Check server logs for OCR errors."}`
       });
     }
     const extractedRules = extractDocumentRulesFromPages(workingPages, title);
@@ -4266,7 +4320,7 @@ async function startServer() {
   const serverInstance = app.listen(PORT_PRIMARY, "0.0.0.0", () => {
     console.log(`[Clario Server] Primary server running on http://localhost:${PORT_PRIMARY}`);
     console.log(`[Clario Server] VerbX OCR Configured: ${isVerbXConfigured}`);
-    console.log(`[Clario Server] Gemini AI Engine: ${Boolean(GEMINI_API_KEY)}`);
+    console.log(`[Clario Server] Gemini AI Engine: ${isGeminiConfigured} (client=${geminiClient !== null})`);
   });
   serverInstance.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
@@ -4274,7 +4328,7 @@ async function startServer() {
       app.listen(PORT_SECONDARY, "0.0.0.0", () => {
         console.log(`[Clario Server] Running on http://localhost:${PORT_SECONDARY}`);
         console.log(`[Clario Server] VerbX OCR Configured: ${isVerbXConfigured}`);
-        console.log(`[Clario Server] Gemini AI Engine: ${Boolean(GEMINI_API_KEY)}`);
+        console.log(`[Clario Server] Gemini AI Engine: ${isGeminiConfigured} (client=${geminiClient !== null})`);
       });
     } else {
       console.error("[Clario Server] Listen error:", err);
