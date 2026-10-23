@@ -2307,6 +2307,7 @@ try {
   const require2 = createRequire(import.meta.url);
   pdfParseModule = require2("pdf-parse");
 } catch (e) {
+  console.warn("[Clario] Notice: pdf-parse not available via createRequire, fallback will use pdf-lib:", e?.message || e);
 }
 var documentProcessingCache = /* @__PURE__ */ new Map();
 var LANG_CODES = {

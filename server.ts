@@ -27,7 +27,7 @@ try {
   const require = createRequire(import.meta.url);
   pdfParseModule = require('pdf-parse');
 } catch (e: any) {
-  // Graceful fallback: serverless environments without native pdf-parse continue operating smoothly
+  console.warn('[Clario] Notice: pdf-parse not available via createRequire, fallback will use pdf-lib:', e?.message || e);
 }
 
 // In-memory document hash cache for instant deduplication & fast upload reuse
