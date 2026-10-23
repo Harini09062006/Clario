@@ -2,9 +2,9 @@ services:
   - type: web
     name: clario-backend
     runtime: node
-    plan: starter
+    plan: free
     region: oregon
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: npm start
     healthCheckPath: /health
     envVars:
